@@ -7,6 +7,7 @@ import google.generativeai as genai
 import praw
 import requests
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+# testing lang
 @api_view(['GET'])
 def test_root(request):
     return Response({"message": "TrendFinder API is live!"})
