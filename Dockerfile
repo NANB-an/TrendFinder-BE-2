@@ -13,7 +13,7 @@ WORKDIR /app
 # Use safer apt practice to handle network issues
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    netcat-openbsd gcc libpq-dev postgresql-client && \
+    netcat-openbsd && \
     rm -rf /var/lib/apt/lists/*
 
 # ✅ Install Python dependencies
