@@ -1,30 +1,28 @@
-# ✅ Use an official Python base image (Debian based)
-FROM python:3.11-slim-bookworm
+# Use an official Python base image
+FROM python:3.11-slim
 
-# ✅ Safety env vars
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    DEBIAN_FRONTEND=noninteractive
+# Environment variables for safe Python behavior
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
 
-# ✅ Set working directory
+# Working directory
 WORKDIR /app
 
-# ✅ Install system dependencies
-# Use safer apt practice to handle network issues
+# Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    netcat-openbsd && \
+    netcat gcc libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# ✅ Install Python dependencies
+# Install Python dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
-# ✅ Copy project files last (to leverage Docker layer caching)
+# Copy project files
 COPY . .
 
-# ✅ Expose port for Gunicorn
-EXPOSE 8000
+# Expose the port Render expects
+EXPOSE 10000
 
-# ✅ Run Gunicorn with live logging
-CMD ["gunicorn", "backend.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--access-logfile", "-", "--error-logfile", "-"]
+# Start Gunicorn using the correct project.wsgi
+CMD ["gunicorn", "backend.wsgi:application", "--bind", "0.0.0.0:$PORT", "--workers", "3", "--access-logfile", "-", "--error-logfile", "-"]
