@@ -9,10 +9,10 @@ ENV PYTHONUNBUFFERED 1
 WORKDIR /app
 
 # ✅ Install system dependencies
-RUN apt-get update && apt-get install -y \
-    netcat gcc postgresql-client && \
-    apt-get clean
-
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    netcat gcc libpq-dev postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
 # ✅ Install dependencies
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
