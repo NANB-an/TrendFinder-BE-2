@@ -6,10 +6,11 @@ import os
 import google.generativeai as genai
 import praw
 import requests
-
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+# testing lang
+@api_view(['GET'])
+def test_root(request):
+    return Response({"message": "TrendFinder API is live!"})
 
 reddit = praw.Reddit(
     client_id=os.getenv("REDDIT_CLIENT_ID"),
@@ -17,39 +18,44 @@ reddit = praw.Reddit(
     user_agent=os.getenv("REDDIT_USER_AGENT")
 )
 
+# @api_view(['GET'])
+# def get_trending_posts(request):
+#     auth_header = request.headers.get('Authorization')
+#     if not auth_header or not auth_header.startswith('Bearer '):
+#         return Response({"error": "Missing or invalid Authorization header."}, status=status.HTTP_401_UNAUTHORIZED)
+    
+#     token = auth_header.split(' ')[1]
+#     payload = verify_supabase_jwt(token)
+#     if 'error' in payload:
+#         return Response({"error": payload['error']}, status=status.HTTP_401_UNAUTHORIZED)
+
+#     subreddit_name = request.GET.get('subreddit', '').strip() or 'popular'
+
+#     try:
+#         subreddit = reddit.subreddit(subreddit_name)
+#         posts = []
+#         for submission in subreddit.hot(limit=5):
+#             posts.append({
+#                 "title": submission.title,
+#                 "url": submission.url,
+#                 "subreddit": subreddit.display_name,
+#                 "score": submission.score
+#             })
+
+#         return Response({"posts": posts})
+#     except Exception as e:
+#         return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 genai.configure(api_key=GEMINI_API_KEY)
-
-@api_view(['GET'])
-def test_root(request):
-    return Response({"message": "TrendFinder API is live!"})
-
-
-@api_view(['GET'])
-def protected_route(request):
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        return Response({"error": "Missing Authorization header"}, status=status.HTTP_401_UNAUTHORIZED)
-    try:
-        token = auth_header.split(" ")[1]
-        payload = verify_supabase_jwt(token)
-        user_id = payload['sub']
-        user_email = payload['email']
-        return Response({
-            "message": "Token is valid",
-            "user_id": user_id,
-            "email": user_email
-        })
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
-
-
 def generate_idea(title):
     model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = f"Suggest a creative blog or social media content idea inspired by this Reddit post: \"{title}\""
     response = model.generate_content(prompt)
-    return response.text
+    idea = response.text
+    return idea
 
-
+# ✅ Trending posts: NO ideas yet!
 @api_view(['GET'])
 def trending_posts(request):
     jwt_token = request.headers.get('Authorization', '').split('Bearer ')[-1]
@@ -62,11 +68,12 @@ def trending_posts(request):
     subreddit_name = request.GET.get('subreddit', '').strip() or 'popular'
     subreddit = reddit.subreddit(subreddit_name)
 
+    # ✅ Fetch user's bookmarks with id and url
     res = requests.get(
         f"{SUPABASE_URL}/rest/v1/bookmarks",
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {jwt_token}",  # ✅ Pass user JWT here too
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json"
         },
         params={
@@ -82,7 +89,7 @@ def trending_posts(request):
         )
 
     bookmarks = res.json()
-    bookmarked_urls = {row["url"]: row["id"] for row in bookmarks}
+    bookmarked_urls = { row["url"]: row["id"] for row in bookmarks }
 
     posts = []
     for post in subreddit.hot(limit=5):
@@ -99,6 +106,7 @@ def trending_posts(request):
     return Response({'posts': posts})
 
 
+# ✅ New route: POST title → returns idea
 @api_view(['POST'])
 def generate_idea_route(request):
     jwt_token = request.headers.get('Authorization', '').split('Bearer ')[-1]
@@ -112,7 +120,34 @@ def generate_idea_route(request):
 
     idea = generate_idea(title)
     return Response({'idea': idea})
+    
+@api_view(['GET'])
+def protected_route(request):
+    auth_header = request.headers.get('Authorization')
 
+    if not auth_header:
+        return Response({"error": "Missing Authorization header"}, status=status.HTTP_401_UNAUTHORIZED)
+
+    try:
+        # Expect: "Bearer <token>"
+        token = auth_header.split(" ")[1]
+        payload = verify_supabase_jwt(token)
+
+        # You can access user info like:
+        user_id = payload['sub']
+        user_email = payload['email']
+
+        return Response({
+            "message": "Token is valid",
+            "user_id": user_id,
+            "email": user_email
+        })
+
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_401_UNAUTHORIZED)
+    
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 @api_view(['POST'])
 def bookmark_post(request):
@@ -121,7 +156,7 @@ def bookmark_post(request):
     if not payload:
         return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    # user_id = payload['sub']  # ✅ NOT needed in payload, let DB set it
+    user_id = payload['sub']
 
     title = request.data.get("title")
     subreddit = request.data.get("subreddit")
@@ -135,16 +170,16 @@ def bookmark_post(request):
         f"{SUPABASE_URL}/rest/v1/bookmarks",
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {jwt_token}",  # ✅ Use user's JWT for RLS & trigger!
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json",
             "Prefer": "return=representation"
         },
         json={
+            "user_id": user_id,
             "title": title,
             "subreddit": subreddit,
             "url": url,
             "idea": idea,
-            # ✅ Do NOT send user_id! DB sets it.
         }
     )
 
@@ -164,11 +199,12 @@ def get_bookmarks(request):
 
     user_id = payload['sub']
 
+    # Get all bookmarks for user
     res = requests.get(
         f"{SUPABASE_URL}/rest/v1/bookmarks",
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {jwt_token}",
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json"
         },
         params={
@@ -192,11 +228,12 @@ def delete_bookmark(request, bookmark_id):
 
     user_id = payload['sub']
 
+    # 🗑️ Delete bookmark with matching id AND user_id for safety
     res = requests.delete(
         f"{SUPABASE_URL}/rest/v1/bookmarks?id=eq.{bookmark_id}&user_id=eq.{user_id}",
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {jwt_token}",  # ✅ Use user JWT!
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json",
             "Prefer": "return=minimal"
         }
@@ -207,7 +244,6 @@ def delete_bookmark(request, bookmark_id):
     else:
         return Response({'error': 'Failed to delete.', 'details': res.text}, status=500)
 
-
 @api_view(['PATCH'])
 def update_bookmark(request, bookmark_id):
     jwt_token = request.headers.get('Authorization', '').split('Bearer ')[-1]
@@ -216,13 +252,13 @@ def update_bookmark(request, bookmark_id):
         return Response({'error': 'Unauthorized'}, status=status.HTTP_401_UNAUTHORIZED)
 
     user_id = payload['sub']
-    new_data = request.data
+    new_data = request.data  # Expect JSON with fields to update
 
     res = requests.patch(
         f"{SUPABASE_URL}/rest/v1/bookmarks?id=eq.{bookmark_id}&user_id=eq.{user_id}",
         headers={
             "apikey": SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {jwt_token}",  # ✅ Use user JWT!
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
             "Content-Type": "application/json",
             "Prefer": "return=representation"
         },
